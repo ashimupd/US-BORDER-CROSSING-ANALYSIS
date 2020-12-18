@@ -1,0 +1,185 @@
+---
+title: "Group Project: Data Exploration"
+author: "Group X"
+date: "10/28/2020"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+  
+```{r packages}
+library(tidyverse)
+```
+
+# Download the csv file from the url:"https://www.kaggle.com/divyansh22/us-border-crossing-data/download" and unzip it before running.
+
+``` {r}
+Border_Crossing_Entry_Data <- read_csv("Border_Crossing_Entry_Data.csv")
+View(Border_Crossing_Entry_Data)
+
+write.csv(Border_Crossing_Entry_Data,"border.csv")
+bdata <- Border_Crossing_Entry_Data
+```
+# Seeing a summary of original dataset
+```{r}
+head(bdata)
+summary(bdata)
+```
+# Changing the variable name of the dataset so that it is easier to read. Also removing spaces from variable name if any.
+```{r}
+head(bdata)
+cleaned_data <- bdata %>% 
+  rename(Name = `Port Name`) %>% 
+  rename(Code = `Port Code`) %>% 
+  rename(Transportation = Measure) %>% 
+  rename(Count = Value)
+
+glimpse(cleaned_data)
+```
+
+# Rows with smaller count values (less than 50) were eliminated because of the negligible number of people entering as compared to other rows
+```{r}
+cleaned_data <- cleaned_data %>% 
+  filter(Count > 50)
+glimpse((cleaned_data))
+```
+
+# Verifying that there are two borders mentioned in the dataset
+```{r}
+head(cleaned_data %>%  group_by(Border) %>% summarise(Count = n()))
+```
+
+# Removing redundant information from _Border_ column
+```{r}
+cleaned_data <- cleaned_data %>% 
+  
+  mutate(Border = case_when(Border == "US-Canada Border" ~ "US-Canada", Border == "US-Mexico Border" ~ "US-Mexico"))
+```
+# Seeing a summary of cleaned dataset
+```{r}
+summary(cleaned_data)
+```
+# Any rows with missing values for variables were ignored. For example, if the value was empty
+```{r}
+cleaned_data <- na.omit(cleaned_data)
+```
+
+
+# Removing time value from _Date_ column because we don't need it as it gives no information besides making data look dirty
+```{r}
+cleaned_data <- cleaned_data %>% separate(Date, into = c("Date", "Time"), sep =" ")
+cleaned_data <- cleaned_data %>% select(-Time)
+head(cleaned_data)
+```
+# Keeping only Year information because we don't need Month and Day for the purpose of our study
+```{r}
+cleaned_data <- cleaned_data %>% separate(Date, into = c("Month", "Day", "Year"), sep ="/")
+cleaned_data <- cleaned_data %>% select(-Month, -Day)
+cleaned_data$Year <- as.numeric(cleaned_data$Year)
+head(cleaned_data)
+```
+
+
+
+# How many borders are there
+```{r}
+unique(cleaned_data$State) %>% length()
+```
+
+
+# Which border has the most number of people coming in? 
+```{r }
+ cleaned_data %>% group_by(Border) %>% summarise(Total = sum(Count)) %>% ggplot() + geom_bar(mapping = aes(x=Border, y = Total, fill = Border), stat = "identity", width = 0.3) 
+```
+# Graph to see the pattern of number of people coming in from 1996-2020. We found less people are coming in recent years as compared to the past
+```{r}
+dummy <- cleaned_data %>% group_by(Border, Year) %>% summarise(Total = sum(Count), .groups = "keep")
+ggplot(data = dummy, mapping=aes(x=Year, y=Total, color=Border)) + geom_point() + geom_line() + stat_smooth(method="lm")
+```
+# Graph to see the pattern of number of people coming in from 1996-2020 by state. We found less people are coming in recent years as compared to the past
+```{r}
+dummy <- cleaned_data %>% group_by(Border, Year, State) %>% summarise(Total = sum(Count), .groups = "keep")
+ggplot(data = dummy, mapping=aes(x=Year, y=Total, color=State)) + geom_point() + geom_line() + stat_smooth(method="lm")
+```
+
+# Which State has the most people coming in?
+```{r}
+cleaned_data %>% group_by(Border, State) %>% summarise(Total = sum(Count), .groups = "keep") %>% arrange(desc(Total)) %>% ggplot() + geom_bar(mapping = aes(x=reorder(State, -Total), y = Total, color = State, fill = Border), stat = "identity") + labs(x = "State")
+```
+
+```{r}
+head(cleaned_data)
+unique(cleaned_data$Transportation)
+```
+# Looking at means of transportation by border
+```{r}
+cleaned_data %>% group_by(Border,Transportation) %>% summarise(Total = sum(Count), .groups = "keep") %>% arrange(desc(Total)) %>% ggplot() + geom_bar(mapping = aes(x=reorder(Transportation, -Total), y = Total, color =Transportation, fill = Border), position="fill", stat = "identity") + labs(x = "Means of Transportation") + coord_flip()
+```
+
+```{r}
+cleaned_data %>% group_by(Border,Transportation) %>% summarise(Total = sum(Count), .groups = "keep") %>% arrange(desc(Total)) %>% ggplot() + geom_bar(mapping = aes(x=reorder(Transportation, -Total), y = Total, fill =Transportation),  stat = "identity") + labs(x = "Means of Transportation") + facet_wrap("Border") + coord_flip()
+```
+
+```{r}
+cleaned_data %>% group_by(Border, State, Transportation) %>% summarise(Total=sum(Count), .groups = "keep") %>% ggplot() + geom_bar(mapping = aes(x=reorder(State, -Total), y=Total, fill =Transportation), position = "fill",  stat = "identity") + labs(x = "Means of Transportation") 
+```
+```{r}
+cleaned_data %>% group_by(Border, State, Transportation) %>% summarise(Total=sum(Count), .groups = "keep") %>% ggplot() + geom_bar(mapping = aes(x=reorder(Transportation, -Total), y=Total, fill=Transportation),  stat = "identity") + labs(x = "Means of Transportation") + coord_flip() + facet_wrap("State")
+```
+
+
+# Multiple Regression Starts From Here
+```{r}
+df <- cleaned_data %>% group_by (Border,  Year, Transportation) %>% summarise(TotalEntry = sum(Count), .groups = "keep")
+head(df)
+```
+```{r}
+library(modelr)
+
+library(cvTools)
+
+fit.m<- lm(TotalEntry ~ Year + Transportation, data=df)
+library(rpart)
+library(rpart.plot)
+
+fit.back <- step(fit.all, trace=0)
+summary(fit.m)
+
+df %>% add_predictions(fit.m, var="pred") %>% ggplot (mapping=aes(x=Year, y=TotalEntry, color=Transportation)) + geom_point() + geom_line(mapping=aes(x=Year, y=pred, color=Transportation))
+
+df %>% add_predictions(fit.m, var="pred") %>% add_residuals(fit.m, var="resd") %>% ggplot (mapping=aes(x=Year, y=resd, color=Transportation)) + geom_point() 
+
+unique(df$Transportation)
+```
+# CART
+```{r}
+df <- df %>% mutate(Transportation = case_when(Transportation == "Bus Passengers" ~ "Bus", 
+                                         Transportation == "Buses" ~ "Bus", 
+                                         Transportation == "Pedestrians" ~ "Pedestrians", Transportation == "Personal Vehicle Passengers" ~ "Personal Vehicle",
+Transportation == "Personal Vehicles " ~ "Personal Vehicle", 
+Transportation == "Rail Containers Empty" ~ "Rail", 
+Transportation == "Rail Containers Full" ~ "Rail", 
+Transportation == "Train Passengers" ~ "Train", 
+Transportation == "Trains" ~ "Train", 
+Transportation == "Truck Containers Full" ~ "Truck", 
+Transportation == "Truck Container Empty" ~ "Truck", 
+Transportation == "Trucks" ~ "Truck"))
+
+unique(df$Transportation)
+
+
+```
+```{r}
+fit.rpart <- rpart(TotalEntry ~ Year + Transportation, data=df)
+fit.rpart
+rpart.plot(fit.rpart)
+prp(fit.rpart)
+```
+
+
+# Saving the cleaned data file
+```{r}
+write.csv(cleaned_data, "us_border_cleaned.csv")
+```
+
